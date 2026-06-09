@@ -11,7 +11,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'robots.txt', 'sitemap.xml'],
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'vite.svg', 'robots.txt', 'sitemap.xml'],
       manifest: {
         name: 'Secure File Share',
         short_name: 'SecureShare',
