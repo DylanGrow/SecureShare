@@ -3,6 +3,7 @@ import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
 import { supabase } from './lib/supabase';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Toaster, toast } from 'react-hot-toast';
 
 export type SharedFile = {
   id: string;
@@ -16,9 +17,38 @@ function App() {
   const [files, setFiles] = useState<SharedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'az' | 'type'>('newest');
+  const [globalDragActive, setGlobalDragActive] = useState(false);
 
   useEffect(() => {
     fetchFiles();
+  }, []);
+
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer?.types.includes('Files')) setGlobalDragActive(true);
+    };
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.clientX === 0 && e.clientY === 0) setGlobalDragActive(false);
+    };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setGlobalDragActive(false);
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragover', (e) => e.preventDefault()); // required to allow drop
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragover', (e) => e.preventDefault());
+    };
   }, []);
 
   const fetchFiles = async () => {
@@ -50,12 +80,12 @@ function App() {
           })
         );
         
-        // Sort by newest
-        setFiles(parsedFiles.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        setFiles(parsedFiles);
       }
     } catch (err: any) {
       console.error('Error fetching files:', err);
       setError(err.message || 'Failed to load files from secure storage.');
+      toast.error('Failed to sync vault.');
     } finally {
       setLoading(false);
     }
@@ -65,12 +95,33 @@ function App() {
     fetchFiles();
   };
 
+  const sortedFiles = [...files].sort((a, b) => {
+    if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    if (sortBy === 'az') return a.name.localeCompare(b.name);
+    if (sortBy === 'type') return a.type.localeCompare(b.type);
+    return 0;
+  });
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-blue-900 selection:text-blue-100 font-sans p-6">
+    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-blue-900 selection:text-blue-100 font-sans p-6 relative">
+      <Toaster position="bottom-right" toastOptions={{
+        style: { background: '#1e293b', color: '#f8fafc', border: '1px solid #334155' }
+      }}/>
+      
+      {/* Global Drag Overlay */}
+      {globalDragActive && (
+        <div className="fixed inset-0 z-50 bg-blue-950/80 backdrop-blur-sm flex items-center justify-center border-4 border-blue-500 border-dashed m-4 rounded-3xl pointer-events-none">
+          <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
+            <UploadArea onUploadSuccess={handleUploadSuccess} isGlobal={true} onDismiss={() => setGlobalDragActive(false)} />
+          </div>
+        </div>
+      )}
+
       <div className="max-w-5xl mx-auto space-y-8">
         
         {/* Header */}
-        <header className="flex items-center justify-between pb-6 border-b border-slate-800">
+        <header className="sticky top-0 z-40 -mx-6 px-6 py-4 mb-4 backdrop-blur-md bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="bg-blue-600/20 p-2 rounded-lg border border-blue-500/30">
               <ShieldCheck className="w-8 h-8 text-blue-500" />
@@ -121,11 +172,24 @@ function App() {
           {/* Files List */}
           <div className="lg:col-span-2">
             <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl min-h-[500px]">
-              <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-slate-200">Encrypted Vault</h2>
-                <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
-                  {files.length} ASSETS SECURED
-                </span>
+              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex items-center space-x-3">
+                  <h2 className="text-lg font-semibold text-slate-200">Encrypted Vault</h2>
+                  <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
+                    {files.length} ASSETS SECURED
+                  </span>
+                </div>
+                
+                <select 
+                  value={sortBy} 
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-slate-950 border border-slate-800 text-slate-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+                >
+                  <option value="newest">Sort: Newest First</option>
+                  <option value="oldest">Sort: Oldest First</option>
+                  <option value="az">Sort: A-Z</option>
+                  <option value="type">Sort: File Type</option>
+                </select>
               </div>
               
               <div className="p-6">
@@ -135,7 +199,7 @@ function App() {
                     <p className="text-sm">{error}</p>
                   </div>
                 ) : (
-                  <FileList files={files} loading={loading} />
+                  <FileList files={sortedFiles} loading={loading} onFileUpdate={fetchFiles} />
                 )}
               </div>
             </div>

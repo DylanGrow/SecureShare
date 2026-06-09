@@ -5,9 +5,11 @@ import { cn } from '../lib/utils';
 
 interface UploadAreaProps {
   onUploadSuccess: () => void;
+  isGlobal?: boolean;
+  onDismiss?: () => void;
 }
 
-export function UploadArea({ onUploadSuccess }: UploadAreaProps) {
+export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaProps) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -109,9 +111,10 @@ export function UploadArea({ onUploadSuccess }: UploadAreaProps) {
       {/* Dropzone */}
       <div 
         className={cn(
-          "relative flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl transition-colors duration-200 ease-in-out cursor-pointer bg-slate-900/50",
-          dragActive ? "border-blue-500 bg-blue-500/5" : "border-slate-700 hover:border-slate-500 hover:bg-slate-800",
-          selectedFile ? "hidden" : "flex"
+          "relative flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl transition-colors duration-200 ease-in-out cursor-pointer pointer-events-auto",
+          dragActive || isGlobal ? "border-blue-500 bg-blue-500/10" : "border-slate-700 hover:border-slate-500 hover:bg-slate-800",
+          selectedFile && !isGlobal ? "hidden" : "flex",
+          isGlobal && selectedFile ? "hidden" : "flex"
         )}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}
@@ -137,9 +140,12 @@ export function UploadArea({ onUploadSuccess }: UploadAreaProps) {
 
       {/* Selected File Preview */}
       {selectedFile && (
-        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col items-center relative">
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col items-center relative pointer-events-auto">
           <button 
-            onClick={() => setSelectedFile(null)}
+            onClick={() => {
+              setSelectedFile(null);
+              if (onDismiss) onDismiss();
+            }}
             className="absolute top-2 right-2 p-1 text-slate-400 hover:text-red-400 transition-colors"
             disabled={uploading}
           >
