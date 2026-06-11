@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { SharedFile } from '../App';
-import { FileText, Download, Loader2, Link as LinkIcon, Trash2, X, AlertTriangle, Archive } from 'lucide-react';
+import { FileText, Download, Loader2, Link as LinkIcon, Trash2, X, AlertTriangle, Archive, Edit2, Save } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 
@@ -8,13 +8,30 @@ interface FileListProps {
   files: SharedFile[];
   loading: boolean;
   onFileUpdate: () => void;
+  viewMode: 'grid' | 'list';
 }
 
-export function FileList({ files, loading, onFileUpdate }: FileListProps) {
+export function FileList({ files, loading, onFileUpdate, viewMode }: FileListProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [fileToDelete, setFileToDelete] = useState<SharedFile | null>(null);
+  const [fileToRename, setFileToRename] = useState<SharedFile | null>(null);
+  const [newName, setNewName] = useState('');
+  
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedImage(null);
+        setFileToDelete(null);
+        setFileToRename(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleCopyLink = async (url: string) => {
     try {
@@ -41,6 +58,33 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
     }
   };
 
+  const handleRename = async () => {
+    if (!fileToRename || !newName.trim() || newName === fileToRename.name) {
+      setFileToRename(null);
+      return;
+    }
+    
+    // Ensure extension remains
+    const oldExt = fileToRename.name.split('.').pop() || '';
+    let finalNewName = newName.trim();
+    if (!finalNewName.endsWith(`.${oldExt}`)) {
+      finalNewName = `${finalNewName}.${oldExt}`;
+    }
+
+    try {
+      setIsRenaming(true);
+      const { error } = await supabase.storage.from('secure-shares').move(fileToRename.name, finalNewName);
+      if (error) throw error;
+      toast.success('Asset renamed successfully.');
+      onFileUpdate();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to rename file. You may need move permissions.');
+    } finally {
+      setIsRenaming(false);
+      setFileToRename(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
@@ -55,22 +99,22 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
       <div className="flex flex-col items-center justify-center h-64 text-slate-500 border-2 border-dashed border-slate-800 rounded-xl">
         <FileText className="w-12 h-12 mb-4 opacity-50" />
         <p className="font-medium text-slate-400">Vault is empty</p>
-        <p className="text-sm mt-1">No files have been secured yet.</p>
+        <p className="text-sm mt-1">No files match your criteria.</p>
       </div>
     );
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-4" : "flex flex-col space-y-3"}>
         {files.map((file) => (
           <div 
             key={file.id} 
-            className="group bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl overflow-hidden transition-all duration-200 flex flex-col"
+            className={`group bg-slate-950 border border-slate-800 hover:border-slate-600 hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] rounded-xl overflow-hidden transition-all duration-300 ${viewMode === 'grid' ? 'flex flex-col' : 'flex flex-row items-center h-24'}`}
           >
             {/* File Preview Area */}
             <div 
-              className="h-48 bg-slate-900/50 flex items-center justify-center relative overflow-hidden group-hover:bg-slate-900 transition-colors cursor-pointer"
+              className={`${viewMode === 'grid' ? 'h-48 w-full' : 'h-full w-32 flex-shrink-0'} bg-slate-900/50 flex items-center justify-center relative overflow-hidden group-hover:bg-slate-900 transition-colors cursor-pointer border-r border-transparent ${viewMode === 'list' && 'border-slate-800'}`}
               onClick={() => file.type === 'image' ? setSelectedImage(file.url) : window.open(file.url, '_blank')}
             >
               {file.type === 'image' ? (
@@ -85,18 +129,18 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
                     alt={file.name}
                     loading="lazy"
                     onLoad={() => setLoadedImages(prev => ({ ...prev, [file.id]: true }))}
-                    className={`w-full h-full object-cover transition-opacity duration-300 ${loadedImages[file.id] ? 'opacity-100' : 'opacity-0'}`}
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${loadedImages[file.id] ? 'opacity-100' : 'opacity-0'} hover:scale-105`}
                   />
                 </>
               ) : file.type === 'zip' ? (
                 <div className="flex flex-col items-center text-amber-500/80">
-                  <Archive className="w-16 h-16" />
-                  <span className="mt-2 font-mono text-xs text-amber-500/60 font-semibold tracking-wider">ZIP ARCHIVE</span>
+                  <Archive className={viewMode === 'grid' ? "w-16 h-16" : "w-8 h-8"} />
+                  {viewMode === 'grid' && <span className="mt-2 font-mono text-xs text-amber-500/60 font-semibold tracking-wider">ZIP ARCHIVE</span>}
                 </div>
               ) : (
                 <div className="flex flex-col items-center text-rose-500/80">
-                  <FileText className="w-16 h-16" />
-                  <span className="mt-2 font-mono text-xs text-rose-500/60 font-semibold tracking-wider">PDF DOCUMENT</span>
+                  <FileText className={viewMode === 'grid' ? "w-16 h-16" : "w-8 h-8"} />
+                  {viewMode === 'grid' && <span className="mt-2 font-mono text-xs text-rose-500/60 font-semibold tracking-wider">PDF DOCUMENT</span>}
                 </div>
               )}
               
@@ -105,23 +149,29 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
             </div>
 
             {/* File Details */}
-            <div className="p-4 flex flex-col justify-between flex-grow">
-              <div className="mb-4">
-                <p className="text-sm font-medium text-slate-200 truncate" title={file.name}>
-                  {file.name}
-                </p>
-                <p className="text-xs text-slate-500 mt-1 font-mono">
-                  {new Date(file.created_at).toLocaleDateString()} {new Date(file.created_at).toLocaleTimeString()}
-                </p>
+            <div className={`p-4 flex flex-col justify-between flex-grow ${viewMode === 'list' && 'py-2 flex-row items-center'}`}>
+              <div className={`${viewMode === 'list' ? 'flex-1 min-w-0 pr-4' : 'mb-4'}`}>
+                <div className="flex items-center space-x-2">
+                  <p className="text-sm font-medium text-slate-200 truncate" title={file.name}>
+                    {file.name}
+                  </p>
+                  <button onClick={() => { setFileToRename(file); setNewName(file.name); }} className="text-slate-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center text-xs text-slate-500 mt-1 font-mono space-x-3">
+                  <span>{new Date(file.created_at).toLocaleDateString()}</span>
+                  <span>{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                </div>
               </div>
               
-              <div className="flex items-center justify-between space-x-2 pt-3 border-t border-slate-800/50">
+              <div className={`flex items-center space-x-2 ${viewMode === 'grid' ? 'justify-between pt-3 border-t border-slate-800/50' : 'flex-shrink-0'}`}>
                 <button
                   onClick={() => handleCopyLink(file.url)}
-                  className="flex items-center justify-center space-x-1.5 flex-1 bg-slate-800/50 hover:bg-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg transition-colors"
+                  className="flex items-center justify-center space-x-1.5 flex-1 bg-slate-800/50 hover:bg-slate-700 text-slate-300 text-xs font-medium py-2 px-3 rounded-lg transition-colors"
                 >
                   <LinkIcon className="w-3.5 h-3.5" />
-                  <span>Copy Link</span>
+                  {viewMode === 'grid' && <span>Copy Link</span>}
                 </button>
                 <a 
                   href={file.url}
@@ -149,11 +199,11 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
       {/* Lightbox Modal */}
       {selectedImage && (
         <div 
-          className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200"
           onClick={() => setSelectedImage(null)}
         >
           <button 
-            className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-white bg-slate-900/50 rounded-full transition-colors"
+            className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-white bg-slate-900/50 hover:bg-slate-800 rounded-full transition-colors"
             onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
           >
             <X className="w-6 h-6" />
@@ -161,15 +211,52 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
           <img 
             src={selectedImage} 
             alt="Fullscreen preview" 
-            className="max-w-full max-h-full rounded-lg shadow-2xl object-contain border border-slate-800"
+            className="max-w-full max-h-full rounded-lg shadow-[0_0_50px_rgba(0,0,0,0.5)] object-contain border border-slate-800 transition-transform transform hover:scale-[1.01] duration-500"
             onClick={(e) => e.stopPropagation()}
           />
         </div>
       )}
 
+      {/* Rename Modal */}
+      {fileToRename && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-semibold text-slate-200 mb-4 flex items-center">
+              <Edit2 className="w-5 h-5 mr-2 text-blue-400" />
+              Rename File
+            </h3>
+            <input 
+              type="text" 
+              value={newName} 
+              onChange={(e) => setNewName(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+              className="w-full bg-slate-950 border border-slate-700 text-slate-200 rounded-lg p-3 mb-6 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              autoFocus
+            />
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setFileToRename(null)}
+                disabled={isRenaming}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRename}
+                disabled={isRenaming || !newName.trim() || newName === fileToRename.name}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                {isRenaming ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {fileToDelete && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in duration-200">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center space-x-3 text-rose-400 mb-4">
               <div className="bg-rose-500/10 p-2 rounded-full">

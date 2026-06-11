@@ -11,6 +11,7 @@ export type SharedFile = {
   url: string;
   type: 'pdf' | 'image' | 'zip';
   created_at: string;
+  size: number;
 };
 
 function App() {
@@ -19,6 +20,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'az' | 'type'>('newest');
   const [globalDragActive, setGlobalDragActive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [totalStorage, setTotalStorage] = useState(0);
 
   useEffect(() => {
     fetchFiles();
@@ -77,11 +81,14 @@ function App() {
               url: publicUrlData.publicUrl,
               type: isPdf ? 'pdf' : isZip ? 'zip' : 'image',
               created_at: file.created_at || new Date().toISOString(),
+              size: file.metadata?.size || 0,
             };
           })
         );
         
         setFiles(parsedFiles);
+        const totalSize = parsedFiles.reduce((acc, file) => acc + (file.size || 0), 0);
+        setTotalStorage(totalSize);
       }
     } catch (err: any) {
       console.error('Error fetching files:', err);
@@ -96,13 +103,18 @@ function App() {
     fetchFiles();
   };
 
-  const sortedFiles = [...files].sort((a, b) => {
-    if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    if (sortBy === 'az') return a.name.localeCompare(b.name);
-    if (sortBy === 'type') return a.type.localeCompare(b.type);
-    return 0;
-  });
+  const sortedFiles = [...files]
+    .filter(file => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (sortBy === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (sortBy === 'az') return a.name.localeCompare(b.name);
+      if (sortBy === 'type') return a.type.localeCompare(b.type);
+      return 0;
+    });
+
+  const MAX_STORAGE = 10 * 1024 * 1024 * 1024; // 10 GB limit for UI demo
+  const storagePercent = Math.min((totalStorage / MAX_STORAGE) * 100, 100);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-blue-900 selection:text-blue-100 font-sans p-6 relative">
@@ -122,7 +134,7 @@ function App() {
       <div className="max-w-5xl mx-auto space-y-8">
         
         {/* Header */}
-        <header className="sticky top-0 z-40 -mx-6 px-6 py-4 mb-4 backdrop-blur-md bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
+        <header className="sticky top-0 z-40 -mx-6 px-6 py-4 mb-4 backdrop-blur-md bg-slate-950/80 border-b border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
             <div className="bg-blue-600/20 p-2 rounded-lg border border-blue-500/30">
               <ShieldCheck className="w-8 h-8 text-blue-500" />
@@ -132,9 +144,27 @@ function App() {
               <p className="text-sm text-slate-500 font-medium">Government-grade encrypted transfer</p>
             </div>
           </div>
-          <div className="flex items-center space-x-2 bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20 text-xs font-semibold tracking-wide">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span>SYSTEM SECURE</span>
+
+          <div className="flex items-center space-x-6 w-full sm:w-auto">
+            {/* Storage Quota */}
+            <div className="hidden md:flex flex-col items-end mr-4">
+              <div className="flex justify-between w-48 text-xs text-slate-400 mb-1">
+                <span>Storage</span>
+                <span>{(totalStorage / 1024 / 1024).toFixed(2)} MB / 10 GB</span>
+              </div>
+              <div className="w-48 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-blue-500 rounded-full"
+                  style={{ width: `${Math.max(storagePercent, 1)}%` }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/20 text-xs font-semibold tracking-wide flex-shrink-0">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+              <span className="hidden sm:inline">SYSTEM SECURE</span>
+              <span className="sm:hidden">SECURE</span>
+            </div>
           </div>
         </header>
 
@@ -173,24 +203,51 @@ function App() {
           {/* Files List */}
           <div className="lg:col-span-2">
             <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl min-h-[500px]">
-              <div className="p-6 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="p-6 border-b border-slate-800 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div className="flex items-center space-x-3">
                   <h2 className="text-lg font-semibold text-slate-200">Encrypted Vault</h2>
                   <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-800">
-                    {files.length} ASSETS SECURED
+                    {sortedFiles.length} ASSETS
                   </span>
                 </div>
                 
-                <select 
-                  value={sortBy} 
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="bg-slate-950 border border-slate-800 text-slate-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
-                >
-                  <option value="newest">Sort: Newest First</option>
-                  <option value="oldest">Sort: Oldest First</option>
-                  <option value="az">Sort: A-Z</option>
-                  <option value="type">Sort: File Type</option>
-                </select>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                  {/* Search Bar */}
+                  <input 
+                    type="text"
+                    placeholder="Search files..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full sm:w-48 bg-slate-950 border border-slate-800 text-slate-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 px-3 py-2 outline-none"
+                  />
+
+                  {/* View Toggle */}
+                  <div className="flex bg-slate-950 border border-slate-800 rounded-lg p-1 w-full sm:w-auto justify-center">
+                    <button 
+                      onClick={() => setViewMode('grid')}
+                      className={`px-3 py-1 text-xs font-medium rounded ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Grid
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('list')}
+                      className={`px-3 py-1 text-xs font-medium rounded ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      List
+                    </button>
+                  </div>
+
+                  <select 
+                    value={sortBy} 
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="w-full sm:w-auto bg-slate-950 border border-slate-800 text-slate-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none"
+                  >
+                    <option value="newest">Sort: Newest</option>
+                    <option value="oldest">Sort: Oldest</option>
+                    <option value="az">Sort: A-Z</option>
+                    <option value="type">Sort: Type</option>
+                  </select>
+                </div>
               </div>
               
               <div className="p-6">
@@ -200,7 +257,7 @@ function App() {
                     <p className="text-sm">{error}</p>
                   </div>
                 ) : (
-                  <FileList files={sortedFiles} loading={loading} onFileUpdate={fetchFiles} />
+                  <FileList files={sortedFiles} loading={loading} onFileUpdate={fetchFiles} viewMode={viewMode} />
                 )}
               </div>
             </div>
