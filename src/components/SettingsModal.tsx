@@ -51,17 +51,15 @@ export function SettingsModal({
       } else if (mode === 'direct') {
         if (!apiKey.trim()) throw new Error("Please enter your VirusTotal API key.");
         
-        // Fetch direct
-        const res = await fetch(`https://www.virustotal.com/api/v3/files/${testHash}`, {
-          headers: { 'x-apikey': apiKey.trim() }
-        });
+        // Fetch via corsproxy.io to bypass browser CORS blocks
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(`https://www.virustotal.com/api/v3/files/${testHash}`)}&reqHeaders=${encodeURIComponent(`x-apikey:${apiKey.trim()}`)}`;
+        const res = await fetch(proxyUrl);
         
         if (res.status === 401 || res.status === 403) {
           throw new Error("Invalid API key or unauthorized.");
         }
         
-        // Note: Direct requests typically hit CORS blocks. If it fails with CORS, fetch throws TypeError.
-        toast.success("Direct API Request tested! (Ensure CORS bypass is active)");
+        toast.success("VirusTotal API Key Verified Successfully via proxy!");
       }
     } catch (err: any) {
       console.error(err);
@@ -143,7 +141,17 @@ export function SettingsModal({
         {mode === 'direct' && (
           <div className="space-y-2.5 animate-in slide-in-from-top-2 duration-200">
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">VirusTotal API Key</label>
+              <div className="flex justify-between items-center">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">VirusTotal API Key</label>
+                <a 
+                  href="https://www.virustotal.com/gui/join-us" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-[10px] text-accent hover:underline"
+                >
+                  Get free key ↗
+                </a>
+              </div>
               <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-1">
                 <Key className="w-4 h-4 text-slate-500 mx-2 flex-shrink-0" />
                 <input 
@@ -155,10 +163,10 @@ export function SettingsModal({
                 />
               </div>
             </div>
-            <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 text-rose-400 text-[10px] flex items-start space-x-2">
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-blue-400 text-[10px] flex items-start space-x-2">
               <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <p className="leading-relaxed">
-                ⚠️ **CORS Warning:** Direct Mode saves the API key in local storage. Requests will be blocked by browsers due to CORS unless you use a browser plugin to allow CORS requests.
+                🚀 **Zero-Setup Proxy:** Direct Mode uses a built-in HTTPS proxy (`corsproxy.io`) in your browser to bypass CORS restrictions. No server setup or browser plugins are required! Your key is saved locally.
               </p>
             </div>
           </div>

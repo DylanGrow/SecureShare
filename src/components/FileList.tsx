@@ -146,9 +146,10 @@ export function FileList({
             setVtReports(prev => ({ ...prev, [fileId]: { status: 'error' } }));
             return;
           }
-          const res = await fetch(`https://www.virustotal.com/api/v3/files/${sha256}`, {
-            headers: { 'x-apikey': vtApiKey.trim() }
-          });
+          // Query VirusTotal via corsproxy.io to bypass browser CORS blocks client-side
+          const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(`https://www.virustotal.com/api/v3/files/${sha256}`)}&reqHeaders=${encodeURIComponent(`x-apikey:${vtApiKey.trim()}`)}`;
+          const res = await fetch(proxyUrl);
+          
           if (res.status === 404) {
             data = { status: 'not_found' };
           } else if (!res.ok) {
