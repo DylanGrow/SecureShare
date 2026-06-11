@@ -9,7 +9,7 @@ export type SharedFile = {
   id: string;
   name: string;
   url: string;
-  type: 'pdf' | 'image';
+  type: 'pdf' | 'image' | 'zip';
   created_at: string;
 };
 
@@ -69,12 +69,13 @@ function App() {
               .getPublicUrl(file.name);
 
             const isPdf = file.name.toLowerCase().endsWith('.pdf');
+            const isZip = file.name.toLowerCase().endsWith('.zip');
             
             return {
               id: file.id || file.name,
               name: file.name,
               url: publicUrlData.publicUrl,
-              type: isPdf ? 'pdf' : 'image',
+              type: isPdf ? 'pdf' : isZip ? 'zip' : 'image',
               created_at: file.created_at || new Date().toISOString(),
             };
           })

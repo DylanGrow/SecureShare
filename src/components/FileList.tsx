@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SharedFile } from '../App';
-import { FileText, Download, Loader2, Link as LinkIcon, Trash2, X, AlertTriangle } from 'lucide-react';
+import { FileText, Download, Loader2, Link as LinkIcon, Trash2, X, AlertTriangle, Archive } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 
@@ -88,6 +88,11 @@ export function FileList({ files, loading, onFileUpdate }: FileListProps) {
                     className={`w-full h-full object-cover transition-opacity duration-300 ${loadedImages[file.id] ? 'opacity-100' : 'opacity-0'}`}
                   />
                 </>
+              ) : file.type === 'zip' ? (
+                <div className="flex flex-col items-center text-amber-500/80">
+                  <Archive className="w-16 h-16" />
+                  <span className="mt-2 font-mono text-xs text-amber-500/60 font-semibold tracking-wider">ZIP ARCHIVE</span>
+                </div>
               ) : (
                 <div className="flex flex-col items-center text-rose-500/80">
                   <FileText className="w-16 h-16" />

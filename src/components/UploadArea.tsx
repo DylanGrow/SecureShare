@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { UploadCloud, File, Image as ImageIcon, X, CheckCircle2, Loader2 } from 'lucide-react';
+import { UploadCloud, File, Image as ImageIcon, X, CheckCircle2, Loader2, Archive } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface UploadAreaProps {
@@ -28,9 +28,9 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
   };
 
   const validateFile = (file: File) => {
-    const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      setError("Invalid file format. Only PDF, JPEG, PNG, and WebP are allowed.");
+    const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'application/zip', 'application/x-zip-compressed'];
+    if (!validTypes.includes(file.type) && !file.name.toLowerCase().endsWith('.zip')) {
+      setError("Invalid file format. Only PDF, ZIP, JPEG, PNG, and WebP are allowed.");
       return false;
     }
     // Limit to 10MB
@@ -126,7 +126,7 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
           ref={inputRef}
           type="file" 
           className="hidden" 
-          accept=".pdf,image/png,image/jpeg,image/webp" 
+          accept=".pdf,.zip,image/png,image/jpeg,image/webp" 
           onChange={handleChange}
         />
         <UploadCloud className="w-10 h-10 text-slate-400 mb-3" />
@@ -134,7 +134,7 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
           Drag & drop protocol
         </p>
         <p className="text-xs text-slate-500 mt-1">
-          PDF, PNG, JPG up to 10MB
+          PDF, ZIP, PNG, JPG up to 10MB
         </p>
       </div>
 
@@ -153,8 +153,10 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
           </button>
           
           <div className="bg-slate-800 p-3 rounded-lg mb-3">
-            {selectedFile.type === 'application/pdf' ? (
+            {selectedFile.name.toLowerCase().endsWith('.pdf') ? (
               <File className="w-8 h-8 text-rose-400" />
+            ) : selectedFile.name.toLowerCase().endsWith('.zip') ? (
+              <Archive className="w-8 h-8 text-amber-400" />
             ) : (
               <ImageIcon className="w-8 h-8 text-emerald-400" />
             )}
