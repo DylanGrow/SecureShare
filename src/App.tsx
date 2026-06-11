@@ -37,13 +37,13 @@ function App() {
   // VirusTotal Phase 4 State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [vtMode, setVtMode] = useState<VTIntegrationMode>(() => {
-    return (localStorage.getItem('secureshare-vt-mode') as any) || 'disabled';
+    return (localStorage.getItem('secureshare-vt-mode') as any) || 'direct';
   });
   const [vtFunctionUrl, setVtFunctionUrl] = useState(() => {
     return localStorage.getItem('secureshare-vt-functionurl') || '';
   });
   const [vtApiKey, setVtApiKey] = useState(() => {
-    return localStorage.getItem('secureshare-vt-apikey') || '';
+    return localStorage.getItem('secureshare-vt-apikey') || '5eb4eae6871ee407241c51732d3f5ac34cec4f1f74d5ab6a97b8de48e7d05e1a';
   });
 
   useEffect(() => {
