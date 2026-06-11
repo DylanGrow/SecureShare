@@ -11,6 +11,7 @@ import { decryptFile } from '../lib/crypto';
 import { parseFileName, formatBytes } from '../lib/utils';
 import JSZip from 'jszip';
 import QRCode from 'qrcode';
+import { type VTIntegrationMode } from './SettingsModal';
 
 interface FileListProps {
   files: SharedFile[];
@@ -21,6 +22,9 @@ interface FileListProps {
   setSelectedFileIds: React.Dispatch<React.SetStateAction<string[]>>;
   autoOpenFile: SharedFile | null;
   clearAutoOpenFile: () => void;
+  vtMode: VTIntegrationMode;
+  vtFunctionUrl: string;
+  vtApiKey: string;
 }
 
 export function FileList({ 
@@ -31,7 +35,10 @@ export function FileList({
   selectedFileIds,
   setSelectedFileIds,
   autoOpenFile,
-  clearAutoOpenFile
+  clearAutoOpenFile,
+  vtMode,
+  vtFunctionUrl,
+  vtApiKey
 }: FileListProps) {
   // Modal & Preview States
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -55,6 +62,26 @@ export function FileList({
   
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+
+  // VirusTotal scan states
+  const [vtReports, setVtReports] = useState<Record<string, {
+    status: 'safe' | 'suspicious' | 'malicious' | 'unknown' | 'loading' | 'error';
+    harmless?: number;
+    suspicious?: number;
+    malicious?: number;
+    undetected?: number;
+  }>>({});
+  const [selectedVtReport, setSelectedVtReport] = useState<{
+    file: SharedFile;
+    sha256: string;
+    report: {
+      status: 'safe' | 'suspicious' | 'malicious' | 'unknown' | 'loading' | 'error';
+      harmless?: number;
+      suspicious?: number;
+      malicious?: number;
+      undetected?: number;
+    };
+  } | null>(null);
 
   // Client-Side Decryption States
   const [decryptedCache, setDecryptedCache] = useState<Record<string, { 
@@ -80,6 +107,7 @@ export function FileList({
         setFileToDelete(null);
         setFileToRename(null);
         setPendingAction(null);
+        setSelectedVtReport(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -92,6 +120,84 @@ export function FileList({
       clearAutoOpenFile();
     }
   }, [autoOpenFile]);
+
+  // VirusTotal scan hook
+  useEffect(() => {
+    if (vtMode === 'disabled') {
+      setVtReports({});
+      return;
+    }
+
+    const fetchVTReport = async (fileId: string, sha256: string) => {
+      setVtReports(prev => ({ ...prev, [fileId]: { status: 'loading' } }));
+      
+      try {
+        let data: any;
+        if (vtMode === 'function') {
+          if (!vtFunctionUrl.trim()) {
+            setVtReports(prev => ({ ...prev, [fileId]: { status: 'error' } }));
+            return;
+          }
+          const res = await fetch(`${vtFunctionUrl.trim()}?hash=${sha256}`);
+          if (!res.ok) throw new Error("Proxy response not OK");
+          data = await res.json();
+        } else {
+          if (!vtApiKey.trim()) {
+            setVtReports(prev => ({ ...prev, [fileId]: { status: 'error' } }));
+            return;
+          }
+          const res = await fetch(`https://www.virustotal.com/api/v3/files/${sha256}`, {
+            headers: { 'x-apikey': vtApiKey.trim() }
+          });
+          if (res.status === 404) {
+            data = { status: 'not_found' };
+          } else if (!res.ok) {
+            throw new Error(`API returned status ${res.status}`);
+          } else {
+            const raw = await res.json();
+            data = { status: 'success', data: raw.data };
+          }
+        }
+
+        if (data.status === 'not_found') {
+          setVtReports(prev => ({ ...prev, [fileId]: { status: 'unknown' } }));
+        } else if (data.status === 'success' && data.data) {
+          const stats = data.data.attributes.last_analysis_stats;
+          const malicious = stats.malicious || 0;
+          const suspicious = stats.suspicious || 0;
+          const harmless = stats.harmless || 0;
+          const undetected = stats.undetected || 0;
+          
+          let status: 'safe' | 'suspicious' | 'malicious' = 'safe';
+          if (malicious > 0) status = 'malicious';
+          else if (suspicious > 0) status = 'suspicious';
+          
+          setVtReports(prev => ({
+            ...prev,
+            [fileId]: {
+              status,
+              harmless,
+              suspicious,
+              malicious,
+              undetected
+            }
+          }));
+        } else {
+          throw new Error("Proxy error response: " + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error(`VirusTotal fetch failed for ${sha256}:`, err);
+        setVtReports(prev => ({ ...prev, [fileId]: { status: 'error' } }));
+      }
+    };
+
+    files.forEach(file => {
+      const parsed = parseFileName(file.name);
+      if (parsed.sha256 && !vtReports[file.id]) {
+        fetchVTReport(file.id, parsed.sha256);
+      }
+    });
+  }, [files, vtMode, vtFunctionUrl, vtApiKey]);
 
   // Generate QR Code when share link updates
   const shareUrl = shareFile ? (
@@ -564,6 +670,86 @@ export function FileList({
                         SHA-256: {parsed.sha256.substring(0, 8)}...
                       </button>
                     )}
+
+                    {/* VirusTotal Reputation Badge */}
+                    {vtMode !== 'disabled' && parsed.sha256 && (() => {
+                      const report = vtReports[file.id];
+                      if (!report || report.status === 'loading') {
+                        return (
+                          <div className="text-[10px] text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.2 rounded flex items-center space-x-1.5 animate-pulse">
+                            <Loader2 className="w-3 h-3 animate-spin text-accent" />
+                            <span>Checking...</span>
+                          </div>
+                        );
+                      }
+                      
+                      if (report.status === 'error') {
+                        return (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVtReport({ file, sha256: parsed.sha256 || '', report })}
+                            className="text-[10px] text-slate-400 bg-slate-900 border border-slate-800 hover:border-slate-600 px-2 py-0.2 rounded flex items-center space-x-1 cursor-pointer"
+                            title="Scan connection error. Click to see details."
+                          >
+                            <span>⚠️ VT Error</span>
+                          </button>
+                        );
+                      }
+
+                      if (report.status === 'unknown') {
+                        return (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVtReport({ file, sha256: parsed.sha256 || '', report })}
+                            className="text-[10px] text-slate-400 bg-slate-900 border border-slate-800 hover:border-slate-600 px-2 py-0.2 rounded flex items-center space-x-1 cursor-pointer"
+                            title="Not scanned on VirusTotal yet. Click to submit."
+                          >
+                            <span>❓ VT Unscanned</span>
+                          </button>
+                        );
+                      }
+
+                      if (report.status === 'safe') {
+                        return (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVtReport({ file, sha256: parsed.sha256 || '', report })}
+                            className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:border-emerald-500/40 px-2 py-0.2 rounded flex items-center space-x-1 font-semibold cursor-pointer"
+                            title="VirusTotal scan result: CLEAN. Click for details."
+                          >
+                            <span>🛡️ VT Safe ({report.harmless}/70)</span>
+                          </button>
+                        );
+                      }
+
+                      if (report.status === 'suspicious') {
+                        return (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVtReport({ file, sha256: parsed.sha256 || '', report })}
+                            className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40 px-2 py-0.2 rounded flex items-center space-x-1 font-semibold cursor-pointer"
+                            title="VirusTotal scan result: SUSPICIOUS. Click for details."
+                          >
+                            <span>⚠️ VT Suspicious ({report.suspicious}/70)</span>
+                          </button>
+                        );
+                      }
+
+                      if (report.status === 'malicious') {
+                        return (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedVtReport({ file, sha256: parsed.sha256 || '', report })}
+                            className="text-[10px] text-rose-400 bg-rose-500/15 border border-rose-500/25 hover:border-rose-500/50 px-2 py-0.2 rounded flex items-center space-x-1 font-bold animate-pulse cursor-pointer"
+                            title="Malware detected! Click for details."
+                          >
+                            <span>🚨 VT Malicious ({report.malicious}/70)</span>
+                          </button>
+                        );
+                      }
+                      
+                      return null;
+                    })()}
                   </div>
                 </div>
                 
@@ -945,6 +1131,86 @@ export function FileList({
                 {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
                 Delete
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VirusTotal Report Details Modal */}
+      {selectedVtReport && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+              <h3 className="text-base font-bold text-slate-200 flex items-center">
+                <ShieldCheck className="w-5 h-5 mr-2 text-accent" />
+                Malware Analysis Report
+              </h3>
+              <button onClick={() => setSelectedVtReport(null)} className="p-1 text-slate-400 hover:text-white bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">File Reference</p>
+                <p className="text-xs text-slate-200 font-mono truncate">{parseFileName(selectedVtReport.file.name).originalName}</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-0.5 select-all">SHA-256: {selectedVtReport.sha256}</p>
+              </div>
+
+              {selectedVtReport.report.status === 'unknown' ? (
+                <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 text-center space-y-3">
+                  <p className="text-xs text-slate-400 leading-normal">
+                    This file signature was **not found** in VirusTotal's indexed database. It is likely a new or unique file.
+                  </p>
+                  <a
+                    href={`https://www.virustotal.com/gui/file/${selectedVtReport.sha256}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex bg-accent hover:bg-accent-hover text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-accent/25"
+                  >
+                    Scan on VirusTotal
+                  </a>
+                </div>
+              ) : selectedVtReport.report.status === 'error' ? (
+                <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 text-rose-400 text-xs">
+                  <p className="leading-relaxed">
+                    Failed to query VirusTotal. If using **Direct Mode**, check if a CORS bypass browser extension is active or if your API Key is correct. If using **Edge Proxy**, ensure your Supabase Edge Function is deployed and has the API key.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Analysis Engine Verdicts</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex flex-col items-center">
+                      <span className="text-emerald-400 font-bold text-sm">{selectedVtReport.report.harmless}</span>
+                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Harmless</span>
+                    </div>
+                    <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex flex-col items-center">
+                      <span className="text-slate-400 font-bold text-sm">{selectedVtReport.report.undetected}</span>
+                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Undetected</span>
+                    </div>
+                    <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex flex-col items-center">
+                      <span className="text-amber-400 font-bold text-sm">{selectedVtReport.report.suspicious}</span>
+                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Suspicious</span>
+                    </div>
+                    <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex flex-col items-center">
+                      <span className="text-rose-400 font-bold text-sm">{selectedVtReport.report.malicious}</span>
+                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mt-0.5">Malicious</span>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 text-center">
+                    <a
+                      href={`https://www.virustotal.com/gui/file/${selectedVtReport.sha256}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2 rounded-lg transition-colors border border-slate-700 w-full justify-center"
+                    >
+                      View Full Analysis on VirusTotal
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

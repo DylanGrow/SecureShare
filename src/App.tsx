@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { UploadArea } from './components/UploadArea';
 import { FileList } from './components/FileList';
 import { supabase } from './lib/supabase';
-import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Settings } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 import { parseFileName } from './lib/utils';
+import { SettingsModal, type VTIntegrationMode } from './components/SettingsModal';
 
 export type SharedFile = {
   id: string;
@@ -33,6 +34,18 @@ function App() {
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [autoOpenFile, setAutoOpenFile] = useState<SharedFile | null>(null);
 
+  // VirusTotal Phase 4 State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [vtMode, setVtMode] = useState<VTIntegrationMode>(() => {
+    return (localStorage.getItem('secureshare-vt-mode') as any) || 'disabled';
+  });
+  const [vtFunctionUrl, setVtFunctionUrl] = useState(() => {
+    return localStorage.getItem('secureshare-vt-functionurl') || '';
+  });
+  const [vtApiKey, setVtApiKey] = useState(() => {
+    return localStorage.getItem('secureshare-vt-apikey') || '';
+  });
+
   useEffect(() => {
     fetchFiles();
   }, []);
@@ -42,6 +55,19 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('secureshare-theme', theme);
   }, [theme]);
+
+  // Persist VirusTotal configuration state
+  useEffect(() => {
+    localStorage.setItem('secureshare-vt-mode', vtMode);
+  }, [vtMode]);
+
+  useEffect(() => {
+    localStorage.setItem('secureshare-vt-functionurl', vtFunctionUrl);
+  }, [vtFunctionUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('secureshare-vt-apikey', vtApiKey);
+  }, [vtApiKey]);
 
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
@@ -201,6 +227,15 @@ function App() {
               ))}
             </div>
 
+            {/* Settings button */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+              title="Integrations Settings"
+            >
+              <Settings className="w-5 h-5 hover:rotate-45 transition-transform" />
+            </button>
+
             {/* Storage Quota */}
             <div className="hidden md:flex flex-col items-end mr-2">
               <div className="flex justify-between w-40 text-xs text-slate-400 mb-1">
@@ -352,6 +387,9 @@ function App() {
                     setSelectedFileIds={setSelectedFileIds}
                     autoOpenFile={autoOpenFile}
                     clearAutoOpenFile={() => setAutoOpenFile(null)}
+                    vtMode={vtMode}
+                    vtFunctionUrl={vtFunctionUrl}
+                    vtApiKey={vtApiKey}
                   />
                 )}
               </div>
@@ -361,6 +399,18 @@ function App() {
         </div>
 
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        mode={vtMode}
+        setMode={setVtMode}
+        functionUrl={vtFunctionUrl}
+        setFunctionUrl={setVtFunctionUrl}
+        apiKey={vtApiKey}
+        setApiKey={setVtApiKey}
+      />
     </div>
   );
 }
