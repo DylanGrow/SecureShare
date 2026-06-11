@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { UploadCloud, File, Image as ImageIcon, X, CheckCircle2, Loader2, Archive } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { computeSHA256, encryptFile } from '../lib/crypto';
 
 interface UploadAreaProps {
   onUploadSuccess: () => void;
@@ -16,6 +17,11 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  
+  // Encryption state
+  const [encryptEnabled, setEncryptEnabled] = useState(false);
+  const [password, setPassword] = useState('');
+  
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = (e: React.DragEvent) => {
@@ -54,6 +60,26 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
     setError(null);
     setSuccess(false);
 
+    // Check if a folder was dropped
+    if (e.dataTransfer.items) {
+      let hasFolder = false;
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file') {
+          // Check webkitGetAsEntry to detect folders
+          const entry = item.webkitGetAsEntry();
+          if (entry && entry.isDirectory) {
+            hasFolder = true;
+            break;
+          }
+        }
+      }
+      if (hasFolder) {
+        setError("Folders cannot be uploaded directly. Please compress them into a ZIP archive first.");
+        return;
+      }
+    }
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const valid = validateFiles(e.dataTransfer.files);
       if (valid.length > 0) setSelectedFiles(prev => [...prev, ...valid]);
@@ -77,25 +103,47 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
+    if (encryptEnabled && !password.trim()) {
+      setError("Please enter a passphrase for encryption.");
+      return;
+    }
 
     try {
       setUploading(true);
       setError(null);
       setUploadProgress(0);
 
-      // Simulate smooth progress bar for UI
+      // Simulate progress bar movement
       const interval = setInterval(() => {
         setUploadProgress(prev => Math.min(prev + 5, 90));
-      }, 100);
+      }, 150);
 
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+        
+        // 1. Compute SHA-256 hash
+        const sha256 = await computeSHA256(file);
+        const randomId = Math.random().toString(36).substring(2, 8);
+        
+        let uploadFile: Blob | File = file;
+        let finalName = '';
 
+        // 2. Perform client-side encryption if enabled
+        if (encryptEnabled && password) {
+          uploadFile = await encryptFile(file, password);
+          finalName = `enc_${sha256}_${randomId}_${file.name}`;
+        } else {
+          finalName = `sec_${sha256}_${randomId}_${file.name}`;
+        }
+
+        // 3. Upload to Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from('secure-shares')
-          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+          .upload(finalName, uploadFile, { 
+            cacheControl: '3600', 
+            upsert: false,
+            contentType: encryptEnabled ? 'application/octet-stream' : file.type 
+          });
 
         if (uploadError) throw uploadError;
       }
@@ -109,6 +157,8 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
         setUploadProgress(0);
         onUploadSuccess();
         setSuccess(false);
+        setEncryptEnabled(false);
+        setPassword('');
         if (onDismiss) onDismiss();
       }, 1000);
 
@@ -127,7 +177,7 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
       <div 
         className={cn(
           "relative flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl transition-colors duration-200 ease-in-out cursor-pointer pointer-events-auto",
-          dragActive || isGlobal ? "border-blue-500 bg-blue-500/10" : "border-slate-700 hover:border-slate-500 hover:bg-slate-800",
+          dragActive || isGlobal ? "border-accent bg-accent/10" : "border-slate-700 hover:border-slate-500 hover:bg-slate-800/50",
           selectedFiles.length > 0 && !isGlobal ? "hidden" : "flex",
           isGlobal && selectedFiles.length > 0 ? "hidden" : "flex"
         )}
@@ -154,9 +204,9 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
         </p>
       </div>
 
-      {/* Selected Files Preview */}
+      {/* Selected Files Preview & Options */}
       {selectedFiles.length > 0 && (
-        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col relative pointer-events-auto max-h-64 overflow-y-auto">
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col relative pointer-events-auto space-y-4 max-h-[400px] overflow-y-auto">
           {isGlobal && (
             <button 
               onClick={() => { setSelectedFiles([]); if (onDismiss) onDismiss(); }}
@@ -167,7 +217,7 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
             </button>
           )}
 
-          <div className="space-y-2 mb-4 pr-6">
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
             {selectedFiles.map((file, idx) => (
               <div key={idx} className="flex items-center space-x-3 bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
                 {file.name.toLowerCase().endsWith('.pdf') ? (
@@ -192,23 +242,57 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
             ))}
           </div>
 
+          {/* Encryption Options */}
+          <div className="bg-slate-950/50 border border-slate-800/80 rounded-lg p-3 space-y-3">
+            <label className="flex items-center space-x-2.5 cursor-pointer text-xs text-slate-300 font-semibold select-none">
+              <input 
+                type="checkbox"
+                checked={encryptEnabled}
+                disabled={uploading}
+                onChange={(e) => {
+                  setEncryptEnabled(e.target.checked);
+                  if (!e.target.checked) setPassword('');
+                }}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-accent focus:ring-accent outline-none cursor-pointer"
+              />
+              <span>🔐 Encrypt files client-side (Zero-Knowledge)</span>
+            </label>
+            
+            {encryptEnabled && (
+              <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-200">
+                <input 
+                  type="password"
+                  placeholder="Enter cryptographic key / password..."
+                  value={password}
+                  disabled={uploading}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-lg p-2 outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+                  required
+                />
+                <p className="text-[10px] leading-normal text-slate-500 font-medium">
+                  ⚠️ Note: The file is encrypted using PBKDF2 + AES-GCM-256 before leaving your computer. Your key is never sent online. Share the key securely so the recipient can decrypt.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Upload Button & Animated Progress */}
-          <div className="relative overflow-hidden rounded-lg mt-auto">
+          <div className="relative overflow-hidden rounded-lg">
             {uploading && (
               <div 
-                className="absolute top-0 left-0 h-full bg-blue-600/30 transition-all duration-300 ease-out z-0" 
+                className="absolute top-0 left-0 h-full bg-accent/30 transition-all duration-300 ease-out z-0" 
                 style={{ width: `${uploadProgress}%` }}
               ></div>
             )}
             <button
               onClick={handleUpload}
               disabled={uploading}
-              className="relative z-10 w-full bg-blue-600/90 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 px-4 rounded-lg flex items-center justify-center transition-colors disabled:opacity-80 disabled:cursor-not-allowed border border-blue-500/50"
+              className="relative z-10 w-full bg-accent hover:bg-accent-hover text-white text-sm font-semibold py-2.5 px-4 rounded-lg flex items-center justify-center transition-colors disabled:opacity-80 disabled:cursor-not-allowed border border-accent/20"
             >
               {uploading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Encrypting... {uploadProgress}%
+                  Encrypting & Uploading... {uploadProgress}%
                 </>
               ) : (
                 `Initiate Upload (${selectedFiles.length})`
@@ -227,7 +311,7 @@ export function UploadArea({ onUploadSuccess, isGlobal, onDismiss }: UploadAreaP
       
       {success && (
         <div className="text-xs text-emerald-400 bg-emerald-400/10 p-3 rounded border border-emerald-400/20 flex items-center justify-center space-x-2">
-          <CheckCircle2 className="w-4 h-4" />
+          <CheckCircle2 className="w-4 h-4 animate-bounce" />
           <span>Upload verified and secured.</span>
         </div>
       )}

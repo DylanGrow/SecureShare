@@ -2,6 +2,38 @@
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-glow: var(--color-accent-glow);
+  --color-accent-border: var(--color-accent-border);
+}
+
+:root {
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-glow: rgba(59, 130, 246, 0.15);
+  --color-accent-border: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="green"] {
+  --color-accent: #10b981;
+  --color-accent-hover: #059669;
+  --color-accent-glow: rgba(16, 185, 129, 0.15);
+  --color-accent-border: rgba(16, 185, 129, 0.2);
+}
+
+[data-theme="purple"] {
+  --color-accent: #a855f7;
+  --color-accent-hover: #9333ea;
+  --color-accent-glow: rgba(168, 85, 247, 0.15);
+  --color-accent-border: rgba(168, 85, 247, 0.2);
+}
+
+[data-theme="red"] {
+  --color-accent: #ef4444;
+  --color-accent-hover: #dc2626;
+  --color-accent-glow: rgba(239, 68, 68, 0.15);
+  --color-accent-border: rgba(239, 68, 68, 0.2);
 }
 
 body {
@@ -25,5 +57,5 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b82f6; /* blue-500 */
+  background: var(--color-accent);
 }
